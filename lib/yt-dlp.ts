@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
+import fsSync from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
@@ -101,10 +102,56 @@ function tencentYtDlpHeaderArgs(mediaUrl: string): string[] {
   ];
 }
 
+let cachedYtDlpCommand: string | null = null;
+let ytDlpResolvePromise: Promise<string> | null = null;
+
+function getYtDlpCommandSync() {
+  const fromEnv = process.env.YTDLP_PATH?.trim();
+  if (fromEnv) return fromEnv;
+  if (process.platform !== "win32") return "yt-dlp";
+  try {
+    const pkg = require.resolve("yt-dlp-exec/package.json");
+    const bin = path.join(path.dirname(pkg), "bin", "yt-dlp.exe");
+    if (fsSync.existsSync(bin)) return bin;
+  } catch {}
+  return "yt-dlp";
+}
+
+async function ensureYtDlpCommand() {
+  if (cachedYtDlpCommand) return cachedYtDlpCommand;
+  if (ytDlpResolvePromise) return ytDlpResolvePromise;
+  ytDlpResolvePromise = (async () => {
+    const cmd = getYtDlpCommandSync();
+    if (cmd !== "yt-dlp") {
+      cachedYtDlpCommand = cmd;
+      return cmd;
+    }
+    const file = process.platform === "win32" ? "yt-dlp.exe" : "yt-dlp_linux";
+    const downloadUrl = `https://github.com/yt-dlp/yt-dlp/releases/latest/download/${file}`;
+    const dir = path.join(os.tmpdir(), "saveany-bin");
+    const target = path.join(dir, file);
+    if (!fsSync.existsSync(target)) {
+      await fs.mkdir(dir, { recursive: true });
+      const res = await fetch(downloadUrl, { cache: "no-store" });
+      if (!res.ok) throw new Error("服务端未检测到 yt-dlp，请先安装后再试");
+      const ab = await res.arrayBuffer();
+      await fs.writeFile(target, Buffer.from(ab));
+      if (process.platform !== "win32") await fs.chmod(target, 0o755);
+    }
+    cachedYtDlpCommand = target;
+    return target;
+  })()
+    .finally(() => {
+      ytDlpResolvePromise = null;
+    });
+  return ytDlpResolvePromise;
+}
+
 export async function ytDlpPipeBinaryUrl(mediaUrl: string, timeoutMs = 300000): Promise<Buffer> {
+  const ytDlpCmd = await ensureYtDlpCommand();
   return new Promise((resolve, reject) => {
     const child = spawn(
-      "yt-dlp",
+      ytDlpCmd,
       [
         ...tencentYtDlpHeaderArgs(mediaUrl),
         "--no-warnings",
@@ -190,8 +237,10 @@ export async function ytDlpDownloadMediaUrl(mediaUrl: string, baseDir?: string) 
 }
 
 function runYtDlp(args: string[], timeoutMs = 120000) {
-  return new Promise<string>((resolve, reject) => {
-    const child = spawn("yt-dlp", args, { stdio: ["ignore", "pipe", "pipe"] });
+  return ensureYtDlpCommand().then(
+    (ytDlpCmd) =>
+      new Promise<string>((resolve, reject) => {
+        const child = spawn(ytDlpCmd, args, { stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
     const timer = setTimeout(() => {
@@ -217,7 +266,8 @@ function runYtDlp(args: string[], timeoutMs = 120000) {
         reject(new Error(mapYtDlpError(stderr)));
       }
     });
-  });
+      }),
+  );
 }
 
 function mapYtDlpError(stderr: string) {
