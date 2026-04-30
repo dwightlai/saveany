@@ -29,6 +29,11 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+cookies.txt
+tmp-*.mjs
+_tmp_wx_channel/
+_verify_wx.mp4
+_ytdlp_test.unknown_video
 
 # env files (can opt-in for committing if needed)
 .env*
