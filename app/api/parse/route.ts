@@ -94,10 +94,12 @@ export async function POST(req: NextRequest) {
 
   try {
     const info = await getVideoInfo(url);
+    const audibleFormats = info.formats.filter((f) => f.hasAudio);
+    const formats = audibleFormats.length ? audibleFormats : info.formats;
     if (!info.formats.length) {
       return NextResponse.json({ message: "未获取到可下载格式，请更换视频重试" }, { status: 400 });
     }
-    return NextResponse.json({ platform, info });
+    return NextResponse.json({ platform, info: { ...info, formats } });
   } catch (error) {
     return NextResponse.json(
       { message: error instanceof Error ? error.message : "解析失败，请稍后重试" },
