@@ -286,7 +286,6 @@ function normalizeFormats(formats: RawFormat[] = []) {
   for (const item of formats) {
     if (!item.format_id) continue;
     if (!item.vcodec || item.vcodec === "none") continue;
-    if (!item.acodec || item.acodec === "none") continue;
     const quality = item.format_note || item.resolution || "自适应";
     finalFormats.push({
       id: item.format_id,
