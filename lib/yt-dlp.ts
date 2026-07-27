@@ -281,24 +281,36 @@ function mapYtDlpError(stderr: string) {
   return text || "yt-dlp 执行失败";
 }
 
+function hasStandaloneAudio(formats: RawFormat[] = []) {
+  return formats.some(
+    (item) =>
+      !!item.format_id &&
+      !!item.acodec &&
+      item.acodec !== "none" &&
+      (!item.vcodec || item.vcodec === "none"),
+  );
+}
+
 function normalizeFormats(formats: RawFormat[] = []) {
+  const canMergeAudio = hasStandaloneAudio(formats);
   const finalFormats: VideoFormat[] = [];
   for (const item of formats) {
     if (!item.format_id) continue;
     if (!item.vcodec || item.vcodec === "none") continue;
     const quality = item.format_note || item.resolution || "自适应";
+    const hasAudio = item.acodec !== "none";
     finalFormats.push({
-      id: item.format_id,
+      id: hasAudio || !canMergeAudio ? item.format_id : `${item.format_id}+bestaudio`,
       ext: item.ext || "mp4",
       quality,
       size: item.filesize ?? null,
-      hasAudio: item.acodec !== "none",
+      hasAudio: hasAudio || canMergeAudio,
     });
   }
 
   const dedup = new Map<string, VideoFormat>();
   for (const item of finalFormats) {
-    const key = `${item.id}-${item.ext}`;
+    const key = `${item.quality}-${item.ext}-${item.hasAudio}`;
     if (!dedup.has(key)) dedup.set(key, item);
   }
   return [...dedup.values()].slice(0, 30);
