@@ -281,30 +281,44 @@ function mapYtDlpError(stderr: string) {
   return text || "yt-dlp 执行失败";
 }
 
+function isTwitterUrl(url: string) {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return host === "x.com" || host === "twitter.com" || host.endsWith(".x.com") || host.endsWith(".twitter.com");
+  } catch {
+    return false;
+  }
+}
+
+function formatHasAudioTrack(item: RawFormat) {
+  return !!item.acodec && item.acodec !== "none";
+}
+
 function hasStandaloneAudio(formats: RawFormat[] = []) {
   return formats.some(
     (item) =>
       !!item.format_id &&
-      !!item.acodec &&
-      item.acodec !== "none" &&
+      formatHasAudioTrack(item) &&
       (!item.vcodec || item.vcodec === "none"),
   );
 }
 
-function normalizeFormats(formats: RawFormat[] = []) {
+function normalizeFormats(formats: RawFormat[] = [], url = "") {
   const canMergeAudio = hasStandaloneAudio(formats);
+  // X/Twitter HLS often muxes audio in-stream but reports acodec=none
+  const twitterMuxed = isTwitterUrl(url) && !canMergeAudio;
   const finalFormats: VideoFormat[] = [];
   for (const item of formats) {
     if (!item.format_id) continue;
     if (!item.vcodec || item.vcodec === "none") continue;
     const quality = item.format_note || item.resolution || "自适应";
-    const hasAudio = item.acodec !== "none";
+    const hasAudio = formatHasAudioTrack(item);
     finalFormats.push({
       id: hasAudio || !canMergeAudio ? item.format_id : `${item.format_id}+bestaudio`,
       ext: item.ext || "mp4",
       quality,
       size: item.filesize ?? null,
-      hasAudio: hasAudio || canMergeAudio,
+      hasAudio: hasAudio || canMergeAudio || twitterMuxed,
     });
   }
 
@@ -335,7 +349,7 @@ export async function getVideoInfo(url: string): Promise<VideoInfo> {
     duration: parsed.duration ?? null,
     thumbnail: parsed.thumbnail ?? null,
     webpageUrl: parsed.webpage_url || url,
-    formats: normalizeFormats(parsed.formats),
+    formats: normalizeFormats(parsed.formats, url),
   };
 }
 
